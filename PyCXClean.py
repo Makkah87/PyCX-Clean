@@ -1,44 +1,40 @@
 import tkinter as tk
 from tkinter import filedialog, colorchooser, messagebox
 from pathlib import Path
-import numpy as np
 from PIL import Image
+import numpy as np
 import os
 
 class PaletteApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PyCX Clean")
-        self.root.geometry("530x200")
+        self.root.title("PNG Palette Processor")
+        self.root.geometry("500x300")
         self.palette_path = ""
         self.image_folder = ""
-        self.transparent_color = (0, 0, 0)
+        self.replacement_color = (0, 0, 0)
 
         self.create_widgets()
 
     def create_widgets(self):
         pad = {'padx': 10, 'pady': 5}
 
-        # Palette selector
         tk.Label(self.root, text="Palette (.act) File:").grid(row=0, column=0, sticky="w", **pad)
         self.palette_entry = tk.Entry(self.root, width=50)
         self.palette_entry.grid(row=0, column=1, **pad)
         tk.Button(self.root, text="Browse", command=self.browse_palette).grid(row=0, column=2, **pad)
 
-        # Image folder selector
         tk.Label(self.root, text="PNG Image Folder:").grid(row=1, column=0, sticky="w", **pad)
         self.folder_entry = tk.Entry(self.root, width=50)
         self.folder_entry.grid(row=1, column=1, **pad)
         tk.Button(self.root, text="Browse", command=self.browse_folder).grid(row=1, column=2, **pad)
 
-        # Transparency color
-        tk.Label(self.root, text="Transparent Color:").grid(row=2, column=0, sticky="w", **pad)
+        tk.Label(self.root, text="Replacement Color:").grid(row=2, column=0, sticky="w", **pad)
         self.color_label = tk.Label(self.root, bg="#000000", width=20, relief="sunken")
         self.color_label.grid(row=2, column=1, **pad)
         tk.Button(self.root, text="Choose", command=self.choose_color).grid(row=2, column=2, **pad)
 
-        # Run button
-        tk.Button(self.root, text="Clean", command=self.run_process, height=2, width=20, bg="green", fg="white").grid(
+        tk.Button(self.root, text="Run", command=self.run_process, height=2, width=20, bg="green", fg="white").grid(
             row=4, column=1, pady=20
         )
 
@@ -57,10 +53,10 @@ class PaletteApp:
             self.folder_entry.insert(0, folder)
 
     def choose_color(self):
-        color_code, _ = colorchooser.askcolor(title="Choose Transparent Color")
+        color_code, _ = colorchooser.askcolor(title="Choose Replacement Color")
         if color_code:
-            self.transparent_color = tuple(map(int, color_code))
-            hex_color = "#{:02x}{:02x}{:02x}".format(*self.transparent_color)
+            self.replacement_color = tuple(map(int, color_code))
+            hex_color = "#{:02x}{:02x}{:02x}".format(*self.replacement_color)
             self.color_label.config(bg=hex_color)
 
     def run_process(self):
@@ -75,8 +71,8 @@ class PaletteApp:
             palette = self.load_act_palette(self.palette_path)
             for image_file in Path(self.image_folder).glob("*.png"):
                 output_path = output_folder / image_file.name
-                self.apply_palette(image_file, palette, output_path, self.transparent_color)
-            messagebox.showinfo("Done", f"Images saved to: {output_folder}")
+                self.process_image(image_file, palette, output_path)
+            messagebox.showinfo("Done", f"Processed images saved to: {output_folder}")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
@@ -84,29 +80,39 @@ class PaletteApp:
         with open(act_path, "rb") as f:
             data = f.read()
         palette = [tuple(data[i:i+3]) for i in range(0, min(len(data), 768), 3)]
-        return palette + [(0, 0, 0)] * (256 - len(palette))  # pad to 256 colors
+        return palette + [(0, 0, 0)] * (256 - len(palette))  # Ensure 256 colors
 
-    def apply_palette(self, image_path, palette, output_path, transparent_color):
+    def process_image(self, image_path, palette, output_path):
         img = Image.open(image_path).convert("RGBA")
-        flat_palette = sum(palette, ())
+        data = np.array(img)
+
+        # Compare only RGB
+        rgb_pixels = data[:, :, :3].reshape(-1, 3)
+        palette_set = set(palette)
+
+        # Mask for pixels not in the palette
+        mask = np.array([tuple(pixel) not in palette_set for pixel in rgb_pixels])
+        mask = mask.reshape(data.shape[:2])
+
+        # Replace with user-selected color (fully opaque)
+        data[mask] = [*self.replacement_color, 255]
+
+        # Convert back to RGBA image
+        cleaned = Image.fromarray(data, mode="RGBA")
+
+        # Convert to RGB (quantize only supports RGB or L)
+        rgb_cleaned = cleaned.convert("RGB")
+
+        # Create P-mode palette image
         pal_img = Image.new("P", (1, 1))
+        flat_palette = sum(palette, ())[:768]
         pal_img.putpalette(flat_palette)
-        indexed = img.convert("RGB").quantize(palette=pal_img)
 
-        used_indexes = set(np.array(indexed))
+        # Quantize using the ACT palette
+        final_img = rgb_cleaned.quantize(palette=pal_img, dither=Image.NONE)
 
-        indexed_rgb = indexed.convert("RGBA")
-        data = np.array(indexed_rgb)
-
-        for idx in range(256):
-            if idx not in used_indexes:
-                r, g, b = palette[idx]
-                mask = (data[:, :, 0] == r) & (data[:, :, 1] == g) & (data[:, :, 2] == b)
-                data[mask] = [*transparent_color, 0]
-
-        result = Image.fromarray(data, mode="RGBA")
-        result.save(output_path)
-
+        # Save result
+        final_img.save(output_path)
 
 if __name__ == "__main__":
     root = tk.Tk()
