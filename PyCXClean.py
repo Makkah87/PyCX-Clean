@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, colorchooser, messagebox
+from tkinter import filedialog, colorchooser, messagebox, ttk
 from pathlib import Path
 from PIL import Image
 import numpy as np
@@ -8,8 +8,8 @@ import os
 class PaletteApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PNG Palette Processor")
-        self.root.geometry("500x300")
+        self.root.title("PyCX Clean")
+        self.root.geometry("550x280")
         self.palette_path = ""
         self.image_folder = ""
         self.replacement_color = (0, 0, 0)
@@ -34,9 +34,24 @@ class PaletteApp:
         self.color_label.grid(row=2, column=1, **pad)
         tk.Button(self.root, text="Choose", command=self.choose_color).grid(row=2, column=2, **pad)
 
-        tk.Button(self.root, text="Run", command=self.run_process, height=2, width=20, bg="green", fg="white").grid(
-            row=4, column=1, pady=20
+        # Run button with sky blue background and rounded effect
+        self.run_button = tk.Button(
+            self.root,
+            text="Run",
+            command=self.run_process,
+            height=2,
+            width=20,
+            bg="#3629de",  # Sky blue
+            fg="white",
+            relief="flat",
+            bd=6,
+            font=("Segoe UI", 10, "bold")
         )
+        self.run_button.grid(row=4, column=1, pady=(20, 5))
+
+        # Progress bar
+        self.progress = ttk.Progressbar(self.root, orient="horizontal", length=400, mode="determinate")
+        self.progress.grid(row=5, column=0, columnspan=3, padx=20, pady=10)
 
     def browse_palette(self):
         path = filedialog.askopenfilename(filetypes=[("ACT files", "*.act")])
@@ -69,9 +84,22 @@ class PaletteApp:
 
         try:
             palette = self.load_act_palette(self.palette_path)
-            for image_file in Path(self.image_folder).glob("*.png"):
+            image_files = list(Path(self.image_folder).glob("*.png"))
+            total = len(image_files)
+            if total == 0:
+                messagebox.showinfo("No PNGs", "No PNG images found in the selected folder.")
+                return
+
+            self.progress["maximum"] = total
+            self.progress["value"] = 0
+            self.root.update_idletasks()
+
+            for idx, image_file in enumerate(image_files, 1):
                 output_path = output_folder / image_file.name
                 self.process_image(image_file, palette, output_path)
+                self.progress["value"] = idx
+                self.root.update_idletasks()
+
             messagebox.showinfo("Done", f"Processed images saved to: {output_folder}")
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -113,6 +141,7 @@ class PaletteApp:
 
         # Save result
         final_img.save(output_path)
+
 
 if __name__ == "__main__":
     root = tk.Tk()
